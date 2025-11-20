@@ -1,115 +1,80 @@
 import os
+import json
+from flask import Flask, request
 import requests
-from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# ==============================
-#  ENVIRONMENT VARIABLES
-# ==============================
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-CHAT_ID   = os.environ.get("CHAT_ID")
+BOT_TOKEN = os.environ['BOT_TOKEN']
+CHAT_ID = os.environ['CHAT_ID']
 
-if not BOT_TOKEN or not CHAT_ID:
-    raise RuntimeError("❌ BOT_TOKEN or CHAT_ID missing in environment variables!")
-
-
-# ==============================
-#  TELEGRAM SEND FUNCTION
-# ==============================
-def send_to_telegram(text: str):
+def send_to_telegram(message_text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
-        "chat_id": CHAT_ID,
-        "text": text,
-        "parse_mode": "Markdown"
+        'chat_id': CHAT_ID,
+        'text': message_text,
+        'parse_mode': 'Markdown'
     }
+    response = requests.post(url, data=payload, timeout=10)
+    print("➡️ Telegram status:", response.status_code)
+    print("➡️ Response:", response.text)
+    return response
 
-    try:
-        r = requests.post(url, json=payload, timeout=10)
-        print("➡️ Telegram status:", r.status_code)
-        print("➡️ Response:", r.text)
-        return r
-    except Exception as e:
-        print("❌ Telegram error:", e)
-        return None
-
-
-# ==============================
-#  HEALTH CHECK
-# ==============================
-@app.route("/", methods=["GET"])
+@app.route('/', methods=['GET', 'HEAD'])
 def home():
     return "OK", 200
 
-
-# ==============================
-#  WEBHOOK ENDPOINT
-# ==============================
-@app.route("/webhook", methods=["POST"])
+@app.route('/', methods=['POST'])
 def webhook():
-
     try:
-        data = request.get_json(force=True) or {}
-        print("📥 RAW DATA IN:", data)
+        raw = request.data.decode('utf-8')
+        print("RAW RECEIVED:", raw)
 
-        # ===================================================
-        #  CASE 1 — Quantum format (correct JSON from Pine)
-        # ===================================================
-        if "symbol" in data and "direction" in data:
+        # Try LOAD REAL JSON
+        data = request.get_json(silent=True)
 
-            symbol    = str(data.get("symbol", "UNKNOWN"))
-            direction = str(data.get("direction", "UNKNOWN")).upper()
-            price     = data.get("price", "N/A")
-            tp        = data.get("tp", "N/A")
-            sl        = data.get("sl", "N/A")
-            time_str  = data.get("time", "N/A")
+        # If TradingView sends invalid JSON (stringified dict)
+        if data is None:
+            try:
+                data = json.loads(raw.replace("'", '"'))
+                print("Parsed STRING JSON:", data)
+            except:
+                # fallback (TrendSignal)
+                print("➡️ Fallback mode activated")
+                send_to_telegram(f"⚡ External Signal\n\n{raw}")
+                return "OK", 200
 
-            # Clean nan / weird values
-            if str(tp).lower() in ["nan", "none", "null"]: tp = "N/A"
-            if str(sl).lower() in ["nan", "none", "null"]: sl = "N/A"
+        # ----- Quantum format -----
+        if "action" in data:
+            action = data.get("action", "?")
+            side   = data.get("side", "?")
+            symbol = data.get("symbol", "?")
+            price  = data.get("price", "N/A")
+            tp     = data.get("tp", "N/A")
+            sl     = data.get("sl", "N/A")
 
-            emoji = "🚀" if "LONG" in direction else "⚡"
+            emoji = "🚀" if side.upper() == "LONG" else "⚡"
 
-            text = (
-                f"{emoji} *{direction}* Signal\n"
-                f"*Symbol:* `{symbol}`\n"
-                f"*Price:* `{price}`\n"
-                f"*TP:* `{tp}`\n"
-                f"*SL:* `{sl}`\n"
-                f"*Time:* `{time_str}`\n"
-                f"Source: Quantum"
+            msg = (
+                f"{emoji} *{action} {side}* on `{symbol}`\n"
+                f"💰 Price: `{price}`\n"
+                f"🎯 TP: `{tp}`\n"
+                f"🛑 SL: `{sl}`"
             )
 
-        # ===================================================
-        #  CASE 2 — TrendSignal / external indicators
-        # ===================================================
-        else:
-            # Some indicators send "message", some send "content", some raw text
-            content = (
-                data.get("message") or
-                data.get("content") or
-                str(data)
-            )
+            send_to_telegram(msg)
+            return "OK", 200
 
-            text = (
-                "⚡ *External Signal*\n\n"
-                f"`{content}`"
-            )
-
-        send_to_telegram(text)
-        return jsonify({"status": "ok"}), 200
+        # ----- TrendSignal or other -----
+        content = data.get("content", raw)
+        send_to_telegram(f"⚡ *External Signal*\n\n{content}")
+        return "OK", 200
 
     except Exception as e:
-        print("❌ Webhook error:", e)
-        send_to_telegram(f"🔥 Bot error: {e}")
-        return jsonify({"error": str(e)}), 500
+        send_to_telegram(f"Bot error: {e}")
+        return "Error", 500
 
-
-# ==============================
-#  RUN SERVER ON RENDER PORT
-# ==============================
-if __name__ == "__main__":
-    send_to_telegram("🔄 Bot restarted — ready for signals!")
-    port = int(os.environ.get("PORT", 10000))  # <-- REQUIRED BY RENDER
-    app.run(host="0.0.0.0", port=port)
+if __name__ == '__main__':
+    send_to_telegram("Bot restarted – ready for signals! 🚀")
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
