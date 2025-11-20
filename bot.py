@@ -19,6 +19,10 @@ def send_to_telegram(message_text):
     print(f"Telegram response body: {response.text}")
     return response
 
+@app.route('/', methods=['GET', 'HEAD'])
+def home():
+    return "OK", 200  # Handles Render health pings
+
 @app.route('/', methods=['POST'])
 def webhook():
     try:
@@ -57,8 +61,6 @@ def webhook():
         return 'Error', 500
 
 if __name__ == '__main__':
-    # Send test on startup
     send_to_telegram("Bot restarted – ready for signals! 🚀")
-    
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
