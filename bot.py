@@ -1,31 +1,34 @@
-import os
-from flask import Flask, request
-import requests
-
-app = Flask(__name__)
-
-BOT_TOKEN = os.environ['BOT_TOKEN']
-CHAT_ID = os.environ['CHAT_ID']
-
 @app.route('/', methods=['POST'])
 def webhook():
-    data = request.json
-    action = data.get('action')
-    side = data.get('side')
-    symbol = data.get('symbol')
-    price = data.get('price')
-    tp = data.get('tp')
-    sl = data.get('sl')
-    time = data.get('time')
+    try:
+        data = request.get_json(force=True)  # force=True handles some TV quirks
+        
+        action = data.get('action', 'SIGNAL')
+        side = data.get('side', '?')
+        symbol = data.get('symbol', 'UNKNOWN')
+        price = data.get('price', 'N/A')
+        tp = data.get('tp', 'N/A')
+        sl = data.get('sl', 'N/A')
+        time = data.get('time', 'N/A')
 
-    message = f"🚨 {action} {side} on {symbol}\nPrice: {price}\nTP: {tp}\nSL: {sl}\nTime: {time}"
+        # Better formatting – always shows something
+        message = (f"{'🚀' if 'LONG' in side.upper() else '⚡'} *{action} {side.upper()}* on `{symbol}`\n"
+                   f"💰 Price: `{price}`\n"
+                   f"🎯 TP: `{tp}`\n"
+                   f"🛑 SL: `{sl}`\n"
+                   f"⏰ {time}")
 
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    params = {'chat_id': CHAT_ID, 'text': message, 'parse_mode': 'Markdown'}
-    requests.get(url, params=params)
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        payload = {
+            'chat_id': CHAT_ID,
+            'text': message or "Quantum Signal received! 🎉",
+            'parse_mode': 'Markdown'
+        }
+        requests.post(url, data=payload, timeout=10)
 
-    return 'OK', 200
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8080))
-    app.run(host='0.0.0.0', port=port)
+        return 'OK', 200
+    except Exception as e:
+        # even if something crashes, we see it
+        requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                      data={'chat_id': CHAT_ID, 'text': f"Bot error: {str(e)}"})
+        return 'Error', 500
