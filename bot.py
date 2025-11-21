@@ -79,6 +79,5 @@ def webhook():
         return "ERR", 500
 
 if __name__ == "__main__":
-    send("Bot restarted – ready for signals! 🚀")
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
