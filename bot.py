@@ -1,86 +1,78 @@
 import os
-import json
 from flask import Flask, request
 import requests
 
 app = Flask(__name__)
 
-BOT_TOKEN = os.environ['BOT_TOKEN']
-CHAT_ID = os.environ['CHAT_ID']
+BOT_TOKEN = os.environ["BOT_TOKEN"]
+CHAT_ID = os.environ["CHAT_ID"]
 
-def send_to_telegram(message_text):
+def send(msg: str):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {
-        'chat_id': CHAT_ID,
-        'text': message_text,
-        'parse_mode': 'Markdown'
+    data = {
+        "chat_id": CHAT_ID,
+        "text": msg,
+        "parse_mode": "Markdown"
     }
-    r = requests.post(url, data=payload, timeout=10)
-    print("Telegram Status:", r.status_code)
-    print("Telegram Response:", r.text)
+    r = requests.post(url, data=data, timeout=10)
+    print("Telegram status:", r.status_code)
+    print("Response:", r.text)
+    return r
 
-def process_signal(raw):
-    print("RAW DATA:", raw)
+@app.route("/", methods=["GET", "HEAD"])
+def home():
+    return "OK", 200
 
-    # Try parse JSON normally
-    data = None
+@app.route("/webhook", methods=["POST"])
+def webhook():
     try:
-        data = request.get_json(silent=True)
-    except:
-        pass
+        data = request.get_json(force=True)
+        print("Incoming JSON:", data)
 
-    # If TradingView sent stringified dict → clean and parse
-    if data is None:
-        try:
-            data = json.loads(raw.replace("'", '"'))
-            print("Parsed STRING JSON:", data)
-        except:
-            # Fallback - send raw
-            msg = f"⚡ External Signal\n\n{raw}"
-            send_to_telegram(msg)
-            return
-
-    # ===== Quantum format =====
-    if "action" in data:
-        action = data.get("action", "?")
+        action = data.get("action", "UNKNOWN")
         side   = data.get("side", "?")
-        symbol = data.get("symbol", "?")
+        sym    = data.get("symbol", "?")
+        tf     = data.get("tf", "?")
         price  = data.get("price", "N/A")
         tp     = data.get("tp", "N/A")
         sl     = data.get("sl", "N/A")
 
-        emoji = "🚀" if side.upper() == "LONG" else "⚡"
+        if action == "ENTRY":
+            msg = (
+                f"🚀 *ENTRY {side}* on `{sym}` ({tf})\n"
+                f"💰 Price: `{price}`\n"
+            )
+            if tp != "N/A":
+                msg += f"🎯 TP: `{tp}`\n"
+            if sl != "N/A":
+                msg += f"🛑 SL: `{sl}`"
 
-        msg = (
-            f"{emoji} *{action} {side}* on `{symbol}`\n"
-            f"💰 Price: `{price}`\n"
-            f"🎯 TP: `{tp}`\n"
-            f"🛑 SL: `{sl}`"
-        )
-        send_to_telegram(msg)
-        return
+        elif action == "EXIT_TP":
+            msg = (
+                f"🎯 *EXIT TP {side}* on `{sym}` ({tf})\n"
+                f"💰 Exit Price: `{price}`"
+            )
 
-    # ===== TrendSignal or unknown =====
-    content = data.get("content", raw)
-    msg = f"⚡ *External Signal*\n\n{content}"
-    send_to_telegram(msg)
+        elif action == "EXIT_SL":
+            msg = (
+                f"🛑 *EXIT SL {side}* on `{sym}` ({tf})\n"
+                f"💰 Exit Price: `{price}`"
+            )
 
-@app.route('/', methods=['GET', 'HEAD'])
-def home():
-    return "OK", 200
+        else:
+            msg = f"⚡ External Signal\n\n{data}"
 
-@app.route('/', methods=['POST'])
-@app.route('/webhook', methods=['POST'])  # <— ADDED to fix the 404
-def webhook():
-    try:
-        raw = request.data.decode('utf-8')
-        process_signal(raw)
+        send(msg)
         return "OK", 200
-    except Exception as e:
-        send_to_telegram(f"Bot error: {e}")
-        return "Error", 500
 
-if __name__ == '__main__':
-    send_to_telegram("Bot restarted – ready for signals! 🚀")
+    except Exception as e:
+        print("Error in webhook:", e)
+        try:
+            send(f"Bot error: {e}")
+        except Exception:
+            pass
+        return "ERR", 500
+
+if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host="0.0.0.0", port=port)
