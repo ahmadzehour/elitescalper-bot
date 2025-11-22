@@ -24,45 +24,56 @@ def webhook():
         data = request.get_json(force=True)
         print("Incoming:", data)
 
-        action = data.get("action", "UNKNOWN")
-        side   = data.get("side", "?")
-        sym    = data.get("symbol", "?")
-        tf     = data.get("tf", "?")
-        price  = data.get("price", "N/A")
-        tp     = data.get("tp", "N/A")
-        sl     = data.get("sl", "N/A")
-        trade_id = data.get("id", "?")
-        risk = data.get("risk", "")
+        action    = data.get("action", "UNKNOWN")
+        side      = data.get("side", "?")
+        sym       = data.get("symbol", "?")
+        tf        = data.get("tf", "?")
+        price     = data.get("price", "N/A")
+        tp        = data.get("tp", "N/A")
+        sl        = data.get("sl", "N/A")
+        trade_id  = data.get("id", "?")
+        risk      = data.get("risk", "")
 
-        long_icon = "🟢📈"
+        long_icon  = "🟢📈"
         short_icon = "🔴📉"
 
+        # ================= ENTRY ================= #
         if action == "ENTRY":
             icon = long_icon if side == "LONG" else short_icon
+
             msg = (
                 f"{icon} *ENTRY {side}*\n"
-                f"🪙 *Symbol:* `{sym}` ({tf})\n"
+                f"🪙 *Symbol:* `{sym}`\n"
+                f"🕒 *TF:* `{tf}`\n"
                 f"🏷️ *ID:* `{trade_id}`\n"
                 f"💰 *Price:* `{price}`\n"
                 f"🎯 *TP:* `{tp}`"
             )
+
             if sl != "N/A":
                 msg += f"\n🛑 *SL:* `{sl}`"
+
             if risk:
                 msg += f"\n⚠️ *Risk:* `{risk}`"
 
+        # ================= TP HIT ================= #
         elif action == "EXIT_TP":
             msg = (
+                f"✅ *SUCCESSFUL TRADE*\n"
                 f"🎯 *TP HIT ({side})*\n"
-                f"🪙 *Symbol:* `{sym}` ({tf})\n"
+                f"🪙 *Symbol:* `{sym}`\n"
+                f"🕒 *TF:* `{tf}`\n"
                 f"🏷️ *ID:* `{trade_id}`\n"
                 f"📌 *Exit Price:* `{price}`"
             )
 
+        # ================= SL HIT ================= #
         elif action == "EXIT_SL":
             msg = (
+                f"❌ *FAILED TRADE*\n"
                 f"🛑 *SL HIT ({side})*\n"
-                f"🪙 *Symbol:* `{sym}` ({tf})\n"
+                f"🪙 *Symbol:* `{sym}`\n"
+                f"🕒 *TF:* `{tf}`\n"
                 f"🏷️ *ID:* `{trade_id}`\n"
                 f"📌 *Exit Price:* `{price}`"
             )
