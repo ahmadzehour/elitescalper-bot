@@ -63,8 +63,7 @@ def webhook():
                 f"🎯 *TP HIT ({side})*\n"
                 f"🪙 *Symbol:* `{sym}`\n"
                 f"🕒 *TF:* `{tf}`\n"
-                f"🏷️ *ID:* `{trade_id}`\n"
-                f"📌 *Exit Price:* `{price}`"
+                f"🏷️ *ID:* `{trade_id}`"
             )
 
         # ================= SL HIT ================= #
@@ -74,8 +73,7 @@ def webhook():
                 f"🛑 *SL HIT ({side})*\n"
                 f"🪙 *Symbol:* `{sym}`\n"
                 f"🕒 *TF:* `{tf}`\n"
-                f"🏷️ *ID:* `{trade_id}`\n"
-                f"📌 *Exit Price:* `{price}`"
+                f"🏷️ *ID:* `{trade_id}`"
             )
 
         else:
