@@ -14,11 +14,9 @@ def send(msg):
     print("Response:", r.text)
     return r
 
-
 @app.route("/", methods=["GET", "HEAD"])
 def home():
     return "OK", 200
-
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -28,7 +26,8 @@ def webhook():
 
         action    = data.get("action", "UNKNOWN")
         side      = data.get("side", "?")
-        symbol_raw = data.get("symbol", "?")         # Example: "BTCUSD (BINANCE)"
+        sym       = data.get("symbol", "?")
+        broker    = data.get("broker", "Unknown")
         tf        = data.get("tf", "?")
         price     = data.get("price", "N/A")
         tp        = data.get("tp", "N/A")
@@ -36,15 +35,6 @@ def webhook():
         trade_id  = data.get("id", "?")
         risk      = data.get("risk", "")
 
-        # --- Split symbol & broker if available ---
-        if "(" in symbol_raw and ")" in symbol_raw:
-            sym = symbol_raw.split("(")[0].strip()
-            broker = symbol_raw.split("(")[1].replace(")", "").strip()
-        else:
-            sym = symbol_raw
-            broker = "Unknown"
-
-        # Icons
         long_icon  = "🟢📈"
         short_icon = "🔴📉"
 
@@ -55,7 +45,7 @@ def webhook():
             msg = (
                 f"{icon} *ENTRY {side}*\n"
                 f"🪙 *Symbol:* `{sym}`\n"
-                f"🏛️ *Broker:* `{broker}`\n"
+                f"🏦 *Broker:* `{broker}`\n"
                 f"🕒 *TF:* `{tf}`\n"
                 f"🏷️ *ID:* `{trade_id}`\n"
                 f"💰 *Price:* `{price}`\n"
@@ -68,18 +58,16 @@ def webhook():
             if risk:
                 msg += f"\n⚠️ *Risk:* `{risk}`"
 
-
         # ================= TP HIT ================= #
         elif action == "EXIT_TP":
             msg = (
                 f"✅ *SUCCESSFUL TRADE*\n"
                 f"🎯 *TP HIT ({side})*\n"
                 f"🪙 *Symbol:* `{sym}`\n"
-                f"🏛️ *Broker:* `{broker}`\n"
+                f"🏦 *Broker:* `{broker}`\n"
                 f"🕒 *TF:* `{tf}`\n"
                 f"🏷️ *ID:* `{trade_id}`"
             )
-
 
         # ================= SL HIT ================= #
         elif action == "EXIT_SL":
@@ -87,11 +75,10 @@ def webhook():
                 f"❌ *FAILED TRADE*\n"
                 f"🛑 *SL HIT ({side})*\n"
                 f"🪙 *Symbol:* `{sym}`\n"
-                f"🏛️ *Broker:* `{broker}`\n"
+                f"🏦 *Broker:* `{broker}`\n"
                 f"🕒 *TF:* `{tf}`\n"
                 f"🏷️ *ID:* `{trade_id}`"
             )
-
 
         else:
             msg = f"⚡ *External Signal*\n\n`{data}`"
@@ -102,7 +89,6 @@ def webhook():
     except Exception as e:
         send(f"Bot error: {e}")
         return "ERR", 500
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
