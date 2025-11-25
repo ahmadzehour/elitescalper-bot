@@ -4,7 +4,7 @@ import requests
 
 app = Flask(__name__)
 BOT_TOKEN = os.environ["BOT_TOKEN"]
-CHAT_ID = os.environ["CHAT_ID"]
+CHAT_ID  = os.environ["CHAT_ID"]
 
 def send(msg):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -26,13 +26,21 @@ def webhook():
 
         action    = data.get("action", "UNKNOWN")
         side      = data.get("side", "?")
-        sym       = data.get("symbol", "?")
+        raw_sym   = data.get("symbol", "?")   # Contains: BTCUSD (BINANCE)
         tf        = data.get("tf", "?")
         price     = data.get("price", "N/A")
         tp        = data.get("tp", "N/A")
         sl        = data.get("sl", "N/A")
         trade_id  = data.get("id", "?")
         risk      = data.get("risk", "")
+
+        # --- EXTRACT SYMBOL + BROKER ---
+        if "(" in raw_sym and raw_sym.endswith(")"):
+            sym = raw_sym.split("(")[0].strip()
+            broker = raw_sym.split("(")[1].replace(")", "").strip()
+        else:
+            sym = raw_sym
+            broker = "Unknown"
 
         long_icon  = "🟢📈"
         short_icon = "🔴📉"
@@ -44,6 +52,7 @@ def webhook():
             msg = (
                 f"{icon} *ENTRY {side}*\n"
                 f"🪙 *Symbol:* `{sym}`\n"
+                f"🏦 *Broker:* `{broker}`\n"
                 f"🕒 *TF:* `{tf}`\n"
                 f"🏷️ *ID:* `{trade_id}`\n"
                 f"💰 *Price:* `{price}`\n"
@@ -62,6 +71,7 @@ def webhook():
                 f"✅ *SUCCESSFUL TRADE*\n"
                 f"🎯 *TP HIT ({side})*\n"
                 f"🪙 *Symbol:* `{sym}`\n"
+                f"🏦 *Broker:* `{broker}`\n"
                 f"🕒 *TF:* `{tf}`\n"
                 f"🏷️ *ID:* `{trade_id}`"
             )
@@ -72,6 +82,7 @@ def webhook():
                 f"❌ *FAILED TRADE*\n"
                 f"🛑 *SL HIT ({side})*\n"
                 f"🪙 *Symbol:* `{sym}`\n"
+                f"🏦 *Broker:* `{broker}`\n"
                 f"🕒 *TF:* `{tf}`\n"
                 f"🏷️ *ID:* `{trade_id}`"
             )
