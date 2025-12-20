@@ -1,5 +1,7 @@
+# github.bot.py (or bot.txt)
+
 import os
-import html
+import json
 from flask import Flask, request
 import requests
 
@@ -8,47 +10,57 @@ app = Flask(__name__)
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 
-# Optional: set this on Render to protect your webhook.
-# If set, requests must include header: X-Webhook-Secret: <value>
-WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "").strip()
 
-
-def esc(x) -> str:
-    return html.escape("" if x is None else str(x))
-
-
-def code(x) -> str:
-    return f"<code>{esc(x)}</code>"
-
-
-def b(x) -> str:
-    return f"<b>{esc(x)}</b>"
-
-
-def send(msg: str):
+def tg_send(msg: str):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     data = {
         "chat_id": CHAT_ID,
         "text": msg,
-        "parse_mode": "HTML",
+        "parse_mode": "Markdown",
         "disable_web_page_preview": True,
     }
-    r = requests.post(url, data=data, timeout=15)
+    r = requests.post(url, data=data, timeout=10)
     print("Telegram status:", r.status_code)
     print("Response:", r.text)
     return r
 
 
-def sym_tf_line(sym, tf) -> str:
-    return code(f"{sym} • {tf}")
+def _norm(v, default="N/A"):
+    if v is None:
+        return default
+    if isinstance(v, str) and v.strip().lower() in ("", "null", "none", "na", "n/a"):
+        return default
+    return str(v)
 
 
-def id_line(trade_id) -> str:
-    return f"{b('ID:')} {code(trade_id)}"
+def _icon_side(side: str):
+    s = (side or "").upper()
+    if s == "LONG":
+        return "🟢", "BUY"
+    if s == "SHORT":
+        return "🔴", "SELL"
+    return "⚪", "?"
 
 
-def is_one(v) -> bool:
-    return str(v).strip() == "1"
+def _fmt_pts(pnl_pts: str):
+    v = _norm(pnl_pts, default="N/A")
+    try:
+        x = float(v)
+        sign = "+" if x > 0 else ""
+        return f"{sign}{v}"
+    except Exception:
+        return v
+
+
+def _reason_text(reason: str):
+    r = (reason or "").upper()
+    if r == "AFTER_TP1":
+        return "CL moved to Entry (after TP1)"
+    if r == "PE_JUDGE":
+        return "PE activated (protective stop)"
+    if r:
+        return r
+    return ""
 
 
 @app.route("/", methods=["GET", "HEAD"])
@@ -59,194 +71,105 @@ def home():
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
-        if WEBHOOK_SECRET:
-            got = request.headers.get("X-Webhook-Secret", "")
-            if got != WEBHOOK_SECRET:
-                return "UNAUTHORIZED", 401
-
-        data = request.get_json(force=True) or {}
+        data = request.get_json(force=True, silent=False)
         print("Incoming:", data)
 
-        action = data.get("action", "UNKNOWN")
+        action = _norm(data.get("action", "UNKNOWN"), default="UNKNOWN").upper()
 
-        side = data.get("side", "?")
-        sym = data.get("symbol", "?")
-        tf = data.get("tf", "?")
-        trade_id = data.get("id", "?")
+        side = _norm(data.get("side", "?"), default="?").upper()
+        sym = _norm(data.get("symbol", "?"), default="?")
+        tf = _norm(data.get("tf", "?"), default="?")
+        trade_id = _norm(data.get("id", "?"), default="?")
 
-        broker = data.get("broker", "Unknown")  # ENTRY only
-        entry = data.get("entry", None)
-        sl = data.get("sl", None)
-        tp1 = data.get("tp1", None)
-        tp2 = data.get("tp2", None)
-        tp1_pct = data.get("tp1_pct", None)
-        tp2_pct = data.get("tp2_pct", None)
+        broker = _norm(data.get("broker", "N/A"), default="N/A")
 
-        new_sl = data.get("new_sl", None)
+        entry = _norm(data.get("entry", "N/A"), default="N/A")
+        tp1 = _norm(data.get("tp1", "N/A"), default="N/A")
+        tp2 = _norm(data.get("tp2", "N/A"), default="N/A")
+        sl = _norm(data.get("sl", "N/A"), default="N/A")
 
-        close_price = data.get("close_price", None)
-        pnl_pts = data.get("pnl_pts", None)
+        tp1_pct = _norm(data.get("tp1_pct", "N/A"), default="N/A")
+        tp2_pct = _norm(data.get("tp2_pct", "N/A"), default="N/A")
 
-        # New close fields from your updated Pine alerts
-        tp_level = data.get("tp_level", None)          # "TP1" / "TP2" / null
-        sl_before_move = data.get("sl_before_move", "0")  # "1" when SL hit after TP1 but before stop update
+        new_sl = _norm(data.get("new_sl", "N/A"), default="N/A")
+        close_price = _norm(data.get("close_price", "N/A"), default="N/A")
+        pnl_pts = _fmt_pts(data.get("pnl_pts", "N/A"))
+        pnl_pips = _norm(data.get("pnl_pips", "N/A"), default="N/A")
 
-        msg = None
+        tp_level = _norm(data.get("tp_level", "N/A"), default="N/A")
+        reason = _reason_text(_norm(data.get("reason", ""), default=""))
 
-        # ---------------- ENTRY ----------------
+        icon, bs = _icon_side(side)
+
+        # Shared header line (spec: symbol + tf + id on its own line)
+        line_sym = f"`{sym}` | `{tf}` | `{trade_id}`"
+
         if action == "ENTRY":
-            is_long = str(side).upper() == "LONG"
-            header = "🟢 BUY — Elite Scalper" if is_long else "🔴 SELL — Elite Scalper"
+            msg = (
+                f"{icon} *{bs} — Elite Scalper*\n"
+                f"{line_sym}\n"
+                f"`{broker}`\n\n"
+                f"*Entry:* `{entry}`\n"
+                f"*SL:* `{sl}`\n"
+                f"*TP1:* `{tp1}` ({tp1_pct}%)\n"
+                f"*TP2:* `{tp2}` ({tp2_pct}%)\n\n"
+                f"Manage risk. Not financial advice."
+            )
 
-            lines = [
-                b(header),
-                sym_tf_line(sym, tf),
-                id_line(trade_id),
-                f"{b('Broker:')} {code(broker)}",
-            ]
-
-            if entry is not None:
-                lines.append(f"{b('Entry:')} {code(entry)}")
-            else:
-                lines.append(f"{b('Entry:')} {code('N/A')}")
-
-            if sl is not None:
-                lines.append(f"{b('SL:')} {code(sl)}")
-            else:
-                lines.append(f"{b('SL:')} {code('N/A')}")
-
-            if tp1 is not None:
-                if tp1_pct is not None and str(tp1_pct).strip() != "" and str(tp1_pct) != "N/A":
-                    lines.append(f"{b('TP1:')} {code(tp1)} ({esc(tp1_pct)}%)")
-                else:
-                    lines.append(f"{b('TP1:')} {code(tp1)}")
-            else:
-                lines.append(f"{b('TP1:')} {code('N/A')}")
-
-            if tp2 is not None:
-                if tp2_pct is not None and str(tp2_pct).strip() != "" and str(tp2_pct) != "N/A":
-                    lines.append(f"{b('TP2:')} {code(tp2)} ({esc(tp2_pct)}%)")
-                else:
-                    lines.append(f"{b('TP2:')} {code(tp2)}")
-
-            lines.append("<i>Manage risk. Not financial advice.</i>")
-            msg = "\n".join(lines)
-
-        # ---------------- TP1 HIT ----------------
         elif action == "TP1_HIT":
-            lines = [
-                b("🎯 TP1 HIT"),
-                sym_tf_line(sym, tf),
-                id_line(trade_id),
-            ]
-            if tp1 is not None:
-                lines.append(f"{b('TP1:')} {code(tp1)}")
-            lines.append("Next: Stop will be adjusted.")
-            msg = "\n".join(lines)
+            msg = (
+                f"🎯 *TP1 HIT — Elite Scalper*\n"
+                f"{line_sym}\n\n"
+                f"*TP1:* `{tp1}`\n"
+                f"CL will move SL to Entry at next bar open."
+            )
 
-        # ---------------- STOP UPDATED ----------------
         elif action == "SL_MOVE":
-            lines = [
-                b("🛡️ STOP UPDATED"),
-                sym_tf_line(sym, tf),
-                id_line(trade_id),
-            ]
-            if new_sl is not None:
-                lines.append(f"{b('New SL:')} {code(new_sl)}")
+            # Covers both CL move and PE move via reason field
+            title = "⚪ *STOP UPDATED — Elite Scalper*"
+            if reason:
+                title = "⚪ *STOP UPDATED — Elite Scalper*"
+            msg = (
+                f"{title}\n"
+                f"{line_sym}\n\n"
+                f"*New SL:* `{new_sl}`"
+            )
+            if reason:
+                msg += f"\n*Reason:* `{reason}`"
+
+        elif action in ("CLOSE_TP", "CLOSE_SL", "CLOSE_CL", "CLOSE_PE", "CLOSE_FLIP"):
+            if action == "CLOSE_TP":
+                headline = "🏁 *CLOSE — TP REACHED*"
+            elif action == "CLOSE_SL":
+                headline = "🛑 *CLOSE — STOP LOSS HIT*"
+            elif action == "CLOSE_CL":
+                headline = "⚪ *CLOSE — CL HIT*"
+            elif action == "CLOSE_PE":
+                headline = "🟣 *CLOSE — PE EXIT*"
             else:
-                lines.append(f"{b('New SL:')} {code('N/A')}")
-            msg = "\n".join(lines)
+                headline = "🔄 *CLOSE — TREND FLIP EXIT*"
 
-        # ---------------- CLOSE: TARGET ----------------
-        elif action == "CLOSE_TP":
-            reason = "Target hit."
-            if tp_level in ("TP1", "TP2"):
-                reason = f"Target hit ({tp_level})."
+            msg = (
+                f"{headline}\n"
+                f"{line_sym}\n\n"
+                f"*Close:* `{close_price}`\n"
+                f"*PnL:* `{pnl_pts}` pts"
+            )
+            if pnl_pips != "N/A":
+                msg += f" (`{pnl_pips}` pips)"
+            if action == "CLOSE_TP" and tp_level != "N/A":
+                msg += f"\n*TP Level:* `{tp_level}`"
 
-            lines = [
-                b("✅ TRADE CLOSED"),
-                esc(reason),
-                sym_tf_line(sym, tf),
-                id_line(trade_id),
-            ]
-            if pnl_pts is not None:
-                lines.append(f"{b('Result:')} {code(str(pnl_pts) + ' pts')}")
-            else:
-                lines.append(f"{b('Result:')} {code('N/A')}")
-            msg = "\n".join(lines)
-
-        # ---------------- CLOSE: STOP LOSS ----------------
-        elif action == "CLOSE_SL":
-            reason = "Stop Loss hit."
-            if is_one(sl_before_move):
-                reason = "Stop Loss hit (before stop update)."
-
-            lines = [
-                b("⛔ TRADE CLOSED"),
-                esc(reason),
-                sym_tf_line(sym, tf),
-                id_line(trade_id),
-            ]
-            if pnl_pts is not None:
-                lines.append(f"{b('Result:')} {code(str(pnl_pts) + ' pts')}")
-            else:
-                lines.append(f"{b('Result:')} {code('N/A')}")
-            msg = "\n".join(lines)
-
-        # ---------------- CLOSE: PROTECTED STOP ----------------
-        elif action == "CLOSE_CL":
-            lines = [
-                b("⚠️ TRADE CLOSED"),
-                "Protected Stop hit.",
-                sym_tf_line(sym, tf),
-                id_line(trade_id),
-            ]
-
-            if close_price is not None and str(close_price) != "N/A":
-                lines.append(f"{b('Protected SL:')} {code(close_price)}")
-
-            if pnl_pts is not None:
-                lines.append(f"{b('Result:')} {code(str(pnl_pts) + ' pts')}")
-            else:
-                lines.append(f"{b('Result:')} {code('N/A')}")
-            msg = "\n".join(lines)
-
-        # ---------------- CLOSE: TRADE PROTECTION (old PE) ----------------
-        elif action == "CLOSE_PE":
-            lines = [
-                b("🛡️ TRADE CLOSED"),
-                "Trade Protection (risk reduction).",
-                sym_tf_line(sym, tf),
-                id_line(trade_id),
-            ]
-            if pnl_pts is not None:
-                lines.append(f"{b('Result:')} {code(str(pnl_pts) + ' pts')}")
-            else:
-                lines.append(f"{b('Result:')} {code('N/A')}")
-            msg = "\n".join(lines)
-
-        # ---------------- CLOSE: TREND REVERSAL (old FLIP) ----------------
-        elif action == "CLOSE_FLIP":
-            lines = [
-                b("🔁 TRADE CLOSED"),
-                "Trend reversal.",
-                sym_tf_line(sym, tf),
-                id_line(trade_id),
-            ]
-            if pnl_pts is not None:
-                lines.append(f"{b('Result:')} {code(str(pnl_pts) + ' pts')}")
-            else:
-                lines.append(f"{b('Result:')} {code('N/A')}")
-            msg = "\n".join(lines)
+            msg += "\n\nManage risk. Not financial advice."
 
         else:
-            msg = b("⚡ SIGNAL") + "\n" + code(data)
+            msg = "⚡ *Elite Scalper — Unhandled Payload*\n\n" + f"`{json.dumps(data, ensure_ascii=False)}`"
 
-        send(msg)
+        tg_send(msg)
         return "OK", 200
 
     except Exception as e:
-        send(b("Bot error") + "\n" + code(e))
+        tg_send(f"Bot error: `{e}`")
         return "ERR", 500
 
 
