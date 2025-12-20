@@ -1,4 +1,4 @@
-# github.bot.py (or bot.txt)
+# github.bot.py
 
 import os
 import json
@@ -25,7 +25,7 @@ def tg_send(msg: str):
     return r
 
 
-def _norm(v, default="N/A"):
+def _norm(v, default="N/A") -> str:
     if v is None:
         return default
     if isinstance(v, str) and v.strip().lower() in ("", "null", "none", "na", "n/a"):
@@ -33,34 +33,46 @@ def _norm(v, default="N/A"):
     return str(v)
 
 
-def _icon_side(side: str):
+def _is_na(v: str) -> bool:
+    return (v or "").strip().upper() in ("N/A", "NA", "NONE", "NULL", "")
+
+
+def _clean_symbol(sym: str) -> str:
+    s = _norm(sym, default="?")
+    # TradingView often sends "CAPITALCOM:US100"
+    if ":" in s:
+        s = s.split(":")[-1]
+    return s
+
+
+def _fmt_pts(v) -> str:
+    s = _norm(v, default="N/A")
+    if _is_na(s):
+        return s
+    try:
+        x = float(s)
+        sign = "+" if x > 0 else ""
+        return f"{sign}{s}"
+    except Exception:
+        return s
+
+
+def _entry_header(side: str) -> str:
     s = (side or "").upper()
     if s == "LONG":
-        return "🟢", "BUY"
+        return "🟢 BUY — Elite Scalper"
     if s == "SHORT":
-        return "🔴", "SELL"
-    return "⚪", "?"
+        return "🔴 SELL — Elite Scalper"
+    return "⚪ ENTRY — Elite Scalper"
 
 
-def _fmt_pts(pnl_pts: str):
-    v = _norm(pnl_pts, default="N/A")
-    try:
-        x = float(v)
-        sign = "+" if x > 0 else ""
-        return f"{sign}{v}"
-    except Exception:
-        return v
-
-
-def _reason_text(reason: str):
+def _reason_text(reason: str) -> str:
     r = (reason or "").upper()
     if r == "AFTER_TP1":
-        return "CL moved to Entry (after TP1)"
+        return "Moved SL to Entry (TP1 hit)"
     if r == "PE_JUDGE":
-        return "PE activated (protective stop)"
-    if r:
-        return r
-    return ""
+        return "Protective exit activated"
+    return r or ""
 
 
 @app.route("/", methods=["GET", "HEAD"])
@@ -77,7 +89,7 @@ def webhook():
         action = _norm(data.get("action", "UNKNOWN"), default="UNKNOWN").upper()
 
         side = _norm(data.get("side", "?"), default="?").upper()
-        sym = _norm(data.get("symbol", "?"), default="?")
+        sym = _clean_symbol(_norm(data.get("symbol", "?"), default="?"))
         tf = _norm(data.get("tf", "?"), default="?")
         trade_id = _norm(data.get("id", "?"), default="?")
 
@@ -88,84 +100,114 @@ def webhook():
         tp2 = _norm(data.get("tp2", "N/A"), default="N/A")
         sl = _norm(data.get("sl", "N/A"), default="N/A")
 
-        tp1_pct = _norm(data.get("tp1_pct", "N/A"), default="N/A")
-        tp2_pct = _norm(data.get("tp2_pct", "N/A"), default="N/A")
-
         new_sl = _norm(data.get("new_sl", "N/A"), default="N/A")
+
         close_price = _norm(data.get("close_price", "N/A"), default="N/A")
         pnl_pts = _fmt_pts(data.get("pnl_pts", "N/A"))
-        pnl_pips = _norm(data.get("pnl_pips", "N/A"), default="N/A")
 
         tp_level = _norm(data.get("tp_level", "N/A"), default="N/A")
         reason = _reason_text(_norm(data.get("reason", ""), default=""))
 
-        icon, bs = _icon_side(side)
+        line_sym_tf = f"*{sym}* | *{tf}*"
+        line_id = f"*ID:* `{trade_id}`"
 
-        # Shared header line (spec: symbol + tf + id on its own line)
-        line_sym = f"`{sym}` | `{tf}` | `{trade_id}`"
-
+        # =========================
+        # ENTRY (APPROVED BASELINE)
+        # =========================
         if action == "ENTRY":
-            msg = (
-                f"{icon} *{bs} — Elite Scalper*\n"
-                f"{line_sym}\n"
-                f"`{broker}`\n\n"
-                f"*Entry:* `{entry}`\n"
-                f"*SL:* `{sl}`\n"
-                f"*TP1:* `{tp1}` ({tp1_pct}%)\n"
-                f"*TP2:* `{tp2}` ({tp2_pct}%)\n\n"
-                f"Manage risk. Not financial advice."
-            )
+            header = _entry_header(side)
 
-        elif action == "TP1_HIT":
-            msg = (
-                f"🎯 *TP1 HIT — Elite Scalper*\n"
-                f"{line_sym}\n\n"
-                f"*TP1:* `{tp1}`\n"
-                f"CL will move SL to Entry at next bar open."
-            )
+            msg_lines = [
+                header,
+                line_sym_tf,
+                line_id,
+                "",
+                f"*Broker:* {broker}",
+                "",
+                f"*Entry:* `{entry}`",
+            ]
 
-        elif action == "SL_MOVE":
-            # Covers both CL move and PE move via reason field
-            title = "⚪ *STOP UPDATED — Elite Scalper*"
+            if not _is_na(sl):
+                msg_lines.append(f"*SL:* `{sl}`")
+            if not _is_na(tp1):
+                msg_lines.append(f"*TP1:* `{tp1}`")
+            if not _is_na(tp2):
+                msg_lines.append(f"*TP2:* `{tp2}`")
+
+            msg_lines.append("")
+            msg_lines.append("Not financial advice.")
+
+            tg_send("\n".join(msg_lines))
+            return "OK", 200
+
+        # =========================
+        # TP1 HIT (APPROVED)
+        # =========================
+        if action == "TP1_HIT":
+            msg = "\n".join([
+                "🎯 TP1 HIT",
+                line_sym_tf,
+                line_id,
+                "",
+                f"TP1: `{tp1}`",
+            ])
+            tg_send(msg)
+            return "OK", 200
+
+        # =========================
+        # SL MOVED (CL or PE) (APPROVED)
+        # =========================
+        if action == "SL_MOVE":
+            msg_lines = [
+                "🛡️ SL MOVED",
+                line_sym_tf,
+                line_id,
+                "",
+                f"New SL: `{new_sl}`",
+            ]
             if reason:
-                title = "⚪ *STOP UPDATED — Elite Scalper*"
-            msg = (
-                f"{title}\n"
-                f"{line_sym}\n\n"
-                f"*New SL:* `{new_sl}`"
-            )
-            if reason:
-                msg += f"\n*Reason:* `{reason}`"
+                msg_lines.append(f"Reason: {reason}")
 
-        elif action in ("CLOSE_TP", "CLOSE_SL", "CLOSE_CL", "CLOSE_PE", "CLOSE_FLIP"):
+            tg_send("\n".join(msg_lines))
+            return "OK", 200
+
+        # =========================
+        # TRADE CLOSED (5 SCENARIOS) (APPROVED)
+        # =========================
+        if action in ("CLOSE_TP", "CLOSE_SL", "CLOSE_CL", "CLOSE_PE", "CLOSE_FLIP"):
             if action == "CLOSE_TP":
-                headline = "🏁 *CLOSE — TP REACHED*"
+                emoji = "✅"
+                lvl = tp_level if not _is_na(tp_level) else "TP"
+                exit_text = f"Target reached ({lvl})"
             elif action == "CLOSE_SL":
-                headline = "🛑 *CLOSE — STOP LOSS HIT*"
+                emoji = "🛑"
+                exit_text = "Stop loss hit"
             elif action == "CLOSE_CL":
-                headline = "⚪ *CLOSE — CL HIT*"
+                emoji = "📍"  # changed per your request
+                exit_text = "Moved SL hit (Entry)"
             elif action == "CLOSE_PE":
-                headline = "🟣 *CLOSE — PE EXIT*"
-            else:
-                headline = "🔄 *CLOSE — TREND FLIP EXIT*"
+                emoji = "🟣"
+                exit_text = "Protective exit"
+            else:  # CLOSE_FLIP
+                emoji = "🔄"
+                exit_text = "Trend flip"
 
-            msg = (
-                f"{headline}\n"
-                f"{line_sym}\n\n"
-                f"*Close:* `{close_price}`\n"
-                f"*PnL:* `{pnl_pts}` pts"
-            )
-            if pnl_pips != "N/A":
-                msg += f" (`{pnl_pips}` pips)"
-            if action == "CLOSE_TP" and tp_level != "N/A":
-                msg += f"\n*TP Level:* `{tp_level}`"
+            msg = "\n".join([
+                f"{emoji} TRADE CLOSED",
+                line_sym_tf,
+                line_id,
+                "",
+                f"Exit: `{exit_text}`",
+                f"Close: `{close_price}`",
+                f"PnL: `{pnl_pts} pts`",
+            ])
+            tg_send(msg)
+            return "OK", 200
 
-            msg += "\n\nManage risk. Not financial advice."
-
-        else:
-            msg = "⚡ *Elite Scalper — Unhandled Payload*\n\n" + f"`{json.dumps(data, ensure_ascii=False)}`"
-
-        tg_send(msg)
+        # =========================
+        # FALLBACK
+        # =========================
+        tg_send("UNHANDLED PAYLOAD\n`" + json.dumps(data, ensure_ascii=False) + "`")
         return "OK", 200
 
     except Exception as e:
