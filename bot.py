@@ -60,10 +60,10 @@ def _fmt_pts(v) -> str:
 def _entry_header(side: str) -> str:
     s = (side or "").upper()
     if s == "LONG":
-        return "🟢 BUY — Elite Scalper"
+        return "*🟢 BUY — Elite Scalper*"
     if s == "SHORT":
-        return "🔴 SELL — Elite Scalper"
-    return "⚪ ENTRY — Elite Scalper"
+        return "*🔴 SELL — Elite Scalper*"
+    return "*⚪ ENTRY — Elite Scalper*"
 
 
 def _reason_text(reason: str) -> str:
@@ -71,7 +71,7 @@ def _reason_text(reason: str) -> str:
     if r == "AFTER_TP1":
         return "Moved SL to Entry (TP1 hit)"
     if r == "PE_JUDGE":
-        return "Protective exit activated"
+        return "Entry protection activated"
     return r or ""
 
 
@@ -100,6 +100,10 @@ def webhook():
         tp2 = _norm(data.get("tp2", "N/A"), default="N/A")
         sl = _norm(data.get("sl", "N/A"), default="N/A")
 
+        # optional: percentages from Pine (if sent)
+        tp1_pct = _norm(data.get("tp1_pct", "N/A"), default="N/A")
+        tp2_pct = _norm(data.get("tp2_pct", "N/A"), default="N/A")
+
         new_sl = _norm(data.get("new_sl", "N/A"), default="N/A")
 
         close_price = _norm(data.get("close_price", "N/A"), default="N/A")
@@ -122,17 +126,25 @@ def webhook():
                 line_sym_tf,
                 line_id,
                 "",
-                f"*Broker:* {broker}",
+                f"*Broker:* `{broker}`",
                 "",
                 f"*Entry:* `{entry}`",
             ]
 
             if not _is_na(sl):
                 msg_lines.append(f"*SL:* `{sl}`")
+
             if not _is_na(tp1):
-                msg_lines.append(f"*TP1:* `{tp1}`")
+                if not _is_na(tp1_pct):
+                    msg_lines.append(f"*TP1:* `{tp1}` ({tp1_pct}%)")
+                else:
+                    msg_lines.append(f"*TP1:* `{tp1}`")
+
             if not _is_na(tp2):
-                msg_lines.append(f"*TP2:* `{tp2}`")
+                if not _is_na(tp2_pct):
+                    msg_lines.append(f"*TP2:* `{tp2}` ({tp2_pct}%)")
+                else:
+                    msg_lines.append(f"*TP2:* `{tp2}`")
 
             msg_lines.append("")
             msg_lines.append("Not financial advice.")
@@ -145,11 +157,11 @@ def webhook():
         # =========================
         if action == "TP1_HIT":
             msg = "\n".join([
-                "🎯 TP1 HIT",
+                "*🎯 TP1 HIT*",
                 line_sym_tf,
                 line_id,
                 "",
-                f"TP1: `{tp1}`",
+                f"*TP1:* `{tp1}`",
             ])
             tg_send(msg)
             return "OK", 200
@@ -159,14 +171,14 @@ def webhook():
         # =========================
         if action == "SL_MOVE":
             msg_lines = [
-                "🛡️ SL MOVED",
+                "*🛡️ SL MOVED*",
                 line_sym_tf,
                 line_id,
                 "",
-                f"New SL: `{new_sl}`",
+                f"*New SL:* `{new_sl}`",
             ]
             if reason:
-                msg_lines.append(f"Reason: {reason}")
+                msg_lines.append(f"*Reason:* {reason}")
 
             tg_send("\n".join(msg_lines))
             return "OK", 200
@@ -183,7 +195,7 @@ def webhook():
                 emoji = "🛑"
                 exit_text = "Stop loss hit"
             elif action == "CLOSE_CL":
-                emoji = "📍"  # changed per your request
+                emoji = "🔒"
                 exit_text = "Moved SL hit (Entry)"
             elif action == "CLOSE_PE":
                 emoji = "🟣"
@@ -197,9 +209,9 @@ def webhook():
                 line_sym_tf,
                 line_id,
                 "",
-                f"Exit: `{exit_text}`",
-                f"Close: `{close_price}`",
-                f"PnL: `{pnl_pts} pts`",
+                f"*Exit:* `{exit_text}`",
+                f"*Close:* `{close_price}`",
+                f"*PnL:* `{pnl_pts} pts`",
             ])
             tg_send(msg)
             return "OK", 200
