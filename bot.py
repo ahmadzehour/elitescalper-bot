@@ -92,7 +92,6 @@ def webhook():
         sym = _clean_symbol(_norm(data.get("symbol", "?"), default="?"))
         tf = _norm(data.get("tf", "?"), default="?")
         trade_id = _norm(data.get("id", "?"), default="?")
-
         broker = _norm(data.get("broker", "N/A"), default="N/A")
 
         entry = _norm(data.get("entry", "N/A"), default="N/A")
@@ -100,14 +99,10 @@ def webhook():
         tp2 = _norm(data.get("tp2", "N/A"), default="N/A")
         sl = _norm(data.get("sl", "N/A"), default="N/A")
 
-        # optional: percentages from Pine (if sent)
-        tp1_pct = _norm(data.get("tp1_pct", "N/A"), default="N/A")
-        tp2_pct = _norm(data.get("tp2_pct", "N/A"), default="N/A")
-
         new_sl = _norm(data.get("new_sl", "N/A"), default="N/A")
 
         close_price = _norm(data.get("close_price", "N/A"), default="N/A")
-        pnl_pts = _fmt_pts(data.get("pnl_pts", "N/A"))
+        net_pts = _fmt_pts(data.get("net_pts", data.get("pnl_pts", "N/A")))
 
         tp_level = _norm(data.get("tp_level", "N/A"), default="N/A")
         reason = _reason_text(_norm(data.get("reason", ""), default=""))
@@ -135,16 +130,10 @@ def webhook():
                 msg_lines.append(f"*SL:* `{sl}`")
 
             if not _is_na(tp1):
-                if not _is_na(tp1_pct):
-                    msg_lines.append(f"*TP1:* `{tp1}` ({tp1_pct}%)")
-                else:
-                    msg_lines.append(f"*TP1:* `{tp1}`")
+                msg_lines.append(f"*TP1:* `{tp1}`")
 
             if not _is_na(tp2):
-                if not _is_na(tp2_pct):
-                    msg_lines.append(f"*TP2:* `{tp2}` ({tp2_pct}%)")
-                else:
-                    msg_lines.append(f"*TP2:* `{tp2}`")
+                msg_lines.append(f"*TP2:* `{tp2}`")
 
             msg_lines.append("")
             msg_lines.append("Not financial advice.")
@@ -162,6 +151,8 @@ def webhook():
                 line_id,
                 "",
                 f"*TP1:* `{tp1}`",
+                '',
+                'Move SL above your entry.',
             ])
             tg_send(msg)
             return "OK", 200
@@ -211,7 +202,7 @@ def webhook():
                 "",
                 f"*Exit:* `{exit_text}`",
                 f"*Close:* `{close_price}`",
-                f"*PnL:* `{pnl_pts} pts`",
+                f"*NET:* `{net_pts} pts`",
             ])
             tg_send(msg)
             return "OK", 200
