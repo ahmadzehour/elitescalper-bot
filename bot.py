@@ -93,6 +93,7 @@ def webhook():
         tf = _norm(data.get("tf", "?"), default="?")
         trade_id = _norm(data.get("id", "?"), default="?")
         broker = _norm(data.get("broker", "N/A"), default="N/A")
+        broker_link = _norm(data.get("broker_link", ""), default="")
 
         entry = _norm(data.get("entry", "N/A"), default="N/A")
         tp1 = _norm(data.get("tp1", "N/A"), default="N/A")
@@ -121,7 +122,7 @@ def webhook():
                 line_sym_tf,
                 line_id,
                 "",
-                f"*Broker:* `{broker}`",
+                f"*Broker:* [{broker}]({broker_link})" if not _is_na(broker_link) else f"*Broker:* `{broker}`",
                 "",
                 f"*Entry:* `{entry}`",
             ]
